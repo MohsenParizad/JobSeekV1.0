@@ -5,21 +5,13 @@ later job/matching tables (V0.2+) can reference `Evidence` without changes
 here.
 """
 import enum
-import uuid
-from datetime import datetime, timezone
+from datetime import datetime
 
 from sqlalchemy import DateTime, Enum, ForeignKey, String, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from backend.models.base import Base
-
-
-def _uuid() -> str:
-    return str(uuid.uuid4())
-
-
-def _utcnow() -> datetime:
-    return datetime.now(timezone.utc)
+from backend.models.util import new_id, utcnow
 
 
 class DocumentType(str, enum.Enum):
@@ -51,10 +43,10 @@ class EvidenceStatus(str, enum.Enum):
 class Candidate(Base):
     __tablename__ = "candidates"
 
-    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
     name: Mapped[str] = mapped_column(String(255))
     email: Mapped[str | None] = mapped_column(String(255), nullable=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
     documents: Mapped[list["Document"]] = relationship(back_populates="candidate", cascade="all, delete-orphan")
     evidence: Mapped[list["Evidence"]] = relationship(back_populates="candidate", cascade="all, delete-orphan")
@@ -63,13 +55,13 @@ class Candidate(Base):
 class Document(Base):
     __tablename__ = "documents"
 
-    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
     candidate_id: Mapped[str] = mapped_column(ForeignKey("candidates.id"))
     document_type: Mapped[DocumentType] = mapped_column(Enum(DocumentType))
     original_filename: Mapped[str] = mapped_column(String(255))
     storage_path: Mapped[str] = mapped_column(String(500))
     raw_text: Mapped[str | None] = mapped_column(Text, nullable=True)
-    uploaded_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
+    uploaded_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
     candidate: Mapped[Candidate] = relationship(back_populates="documents")
     evidence: Mapped[list["Evidence"]] = relationship(back_populates="document", cascade="all, delete-orphan")
@@ -85,7 +77,7 @@ class Evidence(Base):
 
     __tablename__ = "evidence"
 
-    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
     candidate_id: Mapped[str] = mapped_column(ForeignKey("candidates.id"))
     document_id: Mapped[str | None] = mapped_column(ForeignKey("documents.id"), nullable=True)
 
@@ -97,8 +89,8 @@ class Evidence(Base):
     confidence: Mapped[Confidence] = mapped_column(Enum(Confidence))
     status: Mapped[EvidenceStatus] = mapped_column(Enum(EvidenceStatus), default=EvidenceStatus.PENDING)
 
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
-    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow, onupdate=_utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
 
     candidate: Mapped[Candidate] = relationship(back_populates="evidence")
     document: Mapped[Document | None] = relationship(back_populates="evidence")

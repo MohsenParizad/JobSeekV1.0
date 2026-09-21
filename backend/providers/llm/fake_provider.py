@@ -8,6 +8,13 @@ import re
 
 from backend.providers.llm.base import LLMProvider
 from backend.schemas.evidence import ExtractedEvidenceItem
+from backend.schemas.job import ExtractedJobRequirements, ExtractedRequirementItem
+from backend.schemas.matching import EvidenceForMatching, RequirementForMatching, TransferableClassification
+
+_SOFT_REQUIREMENT_MARKERS = ("nice to have", "preferred", "plus", "bonus")
+_LANGUAGE_PATTERN = re.compile(
+    r"\b(German|English|French|Spanish)\b.{0,15}?\b([ABC][12]|fluent|native)\b", re.IGNORECASE
+)
 
 # keyword -> (display name, category)
 _KNOWN_CONCEPTS: dict[str, tuple[str, str]] = {
@@ -50,3 +57,45 @@ class FakeLLMProvider(LLMProvider):
                         )
                     )
         return items
+
+    def extract_job_requirements(self, description_text: str) -> ExtractedJobRequirements:
+        lines = [line.strip() for line in description_text.splitlines() if line.strip()]
+        requirements: list[ExtractedRequirementItem] = []
+        seen: set[str] = set()
+        for line in lines:
+            lowered = line.lower()
+            importance = "preferred" if any(marker in lowered for marker in _SOFT_REQUIREMENT_MARKERS) else "required"
+            for keyword, (display_name, category) in _KNOWN_CONCEPTS.items():
+                if keyword in seen:
+                    continue
+                if re.search(rf"\b{re.escape(keyword)}\b", lowered):
+                    seen.add(keyword)
+                    requirements.append(
+                        ExtractedRequirementItem(
+                            category=category, concept=display_name, importance=importance, source_text=line
+                        )
+                    )
+            language_match = _LANGUAGE_PATTERN.search(line)
+            if language_match:
+                requirements.append(
+                    ExtractedRequirementItem(
+                        category="language",
+                        concept=language_match.group(1).title(),
+                        importance=importance,
+                        language_level=language_match.group(2).upper(),
+                        source_text=line,
+                    )
+                )
+        title = lines[0][:255] if lines else "Untitled role"
+        return ExtractedJobRequirements(title=title, requirements=requirements)
+
+    def classify_transferable(
+        self,
+        requirement: RequirementForMatching,
+        candidate_evidence: list[EvidenceForMatching],
+    ) -> TransferableClassification:
+        # The fake provider never upgrades a requirement to "transferable" —
+        # it exists to keep the deterministic matching path fully testable
+        # without an API key. Tests that exercise the transferable upgrade
+        # path inject a small custom stub instead (see test_matching_engine.py).
+        return TransferableClassification(is_transferable=False)

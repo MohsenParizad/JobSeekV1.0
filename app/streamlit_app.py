@@ -18,9 +18,35 @@ from backend.services.documents.parser import (
     save_upload,
 )
 from backend.services.evidence.store import EvidenceStore
+from backend.services.jobs.analysis import analyze_and_match
+from backend.services.jobs.store import JobStore
+from backend.services.matching.store import MatchStore
 
 st.set_page_config(page_title="JobSeek — Candidate Profile", layout="wide")
 init_db()
+
+
+def _build_match_view(session, job, job_match) -> list[dict]:
+    """Joins a JobMatch's per-requirement results back to their requirement
+    and evidence rows for display, while the session is still open."""
+    requirement_by_id = {r.id: r for r in job.requirements}
+    evidence_by_id = {e.id: e for e in EvidenceStore(session).list_evidence(job_match.candidate_id)}
+    rows = []
+    for rm in job_match.requirement_matches:
+        requirement = requirement_by_id.get(rm.requirement_id)
+        if requirement is None:
+            continue
+        matched_evidence = [evidence_by_id[eid] for eid in rm.matched_evidence_ids if eid in evidence_by_id]
+        rows.append(
+            {
+                "concept": requirement.concept,
+                "importance": requirement.importance.value,
+                "match_type": rm.match_type.value,
+                "explanation": rm.explanation,
+                "matched_evidence": [{"concept": e.concept} for e in matched_evidence],
+            }
+        )
+    return rows
 
 DOCUMENT_TYPE_LABELS = {
     DocumentType.CV: "CV",
@@ -49,7 +75,7 @@ with get_session() as session:
     candidate = EvidenceStore(session).get_or_create_candidate(candidate_name)
     candidate_id = candidate.id
 
-tab_documents, tab_profile = st.tabs(["Documents", "Candidate Profile"])
+tab_documents, tab_profile, tab_job_analysis = st.tabs(["Documents", "Candidate Profile", "Job Analysis"])
 
 with tab_documents:
     st.subheader("Upload a document")
@@ -135,3 +161,64 @@ with tab_profile:
             st.markdown(f"**{category.title()}**")
             for item in items:
                 st.markdown(f"- ☑ {item['concept']} — {item['description']}")
+
+with tab_job_analysis:
+    st.subheader("Analyze a job against your verified evidence")
+
+    with get_session() as session:
+        existing_jobs = JobStore(session).list_jobs()
+
+    NEW_JOB_OPTION = "— New job description —"
+    job_options = {NEW_JOB_OPTION: None}
+    for job in existing_jobs:
+        label = job.title + (f" @ {job.company}" if job.company else "")
+        job_options[f"{label}  ({job.created_at:%Y-%m-%d})"] = job.id
+    selected_label = st.selectbox("Job", list(job_options.keys()))
+    selected_job_id = job_options[selected_label]
+
+    job_view = None
+    match_rows = None
+
+    if selected_job_id is None:
+        description_text = st.text_area("Paste the job description", height=250)
+        if st.button("Analyze & match") and description_text.strip():
+            with st.spinner("Extracting requirements and matching against your verified evidence..."):
+                with get_session() as session:
+                    job, job_match = analyze_and_match(session, candidate_id, get_llm_provider(), description_text)
+                    job_view = {"title": job.title, "company": job.company, "score": job_match.score}
+                    match_rows = _build_match_view(session, job, job_match)
+            st.success(f"Analyzed '{job_view['title']}' — {len(match_rows)} requirement(s) found.")
+    else:
+        with get_session() as session:
+            job = JobStore(session).get_job(selected_job_id)
+            job_match = MatchStore(session).get_latest_match(candidate_id, selected_job_id)
+            if job is not None and job_match is not None:
+                job_view = {"title": job.title, "company": job.company, "score": job_match.score}
+                match_rows = _build_match_view(session, job, job_match)
+
+    if match_rows is not None:
+        st.divider()
+        title_line = job_view["title"] + (f" @ {job_view['company']}" if job_view["company"] else "")
+        st.markdown(f"### {title_line}")
+        st.metric("Fit score", f"{job_view['score']:.1f} / 100")
+
+        groups: dict[str, list[dict]] = {"direct": [], "related": [], "transferable": [], "missing": []}
+        for row in match_rows:
+            groups[row["match_type"]].append(row)
+
+        SECTION_LABELS = {
+            "direct": ("Direct evidence", "✓"),
+            "related": ("Related evidence", "~"),
+            "transferable": ("Transferable evidence", "~"),
+            "missing": ("Gaps", "✗"),
+        }
+        for match_type in ("direct", "related", "transferable", "missing"):
+            rows = groups[match_type]
+            if not rows:
+                continue
+            label, marker = SECTION_LABELS[match_type]
+            st.markdown(f"**{label}**")
+            for row in rows:
+                cited = ", ".join(e["concept"] for e in row["matched_evidence"])
+                citation = f" _(from: {cited})_" if cited else ""
+                st.markdown(f"- {marker} **{row['concept']}** ({row['importance']}) — {row['explanation']}{citation}")

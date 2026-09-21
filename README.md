@@ -11,10 +11,13 @@ the evidence supports.
 
 ## Status
 
-**V0.1 — Core evidence MVP.** Upload a CV, get structured evidence
-extracted, review/approve it, and have it persisted as your verified
-profile. Job matching and generation land in later releases (see the
-roadmap in `docs/requirements.md`).
+**V0.2 — Job matching.** Upload a CV, get structured evidence extracted,
+review/approve it (V0.1), then paste a job description and see it matched
+against your verified evidence: each requirement is classified as direct,
+related, transferable, or a gap, with citations back to the evidence and a
+deterministic fit score. Automated job discovery and AI-generated
+application material land in later releases (see the roadmap in
+`docs/requirements.md`).
 
 ## Setup
 
@@ -46,11 +49,13 @@ pytest
 ```
 app/                    Streamlit UI
 backend/
-  models/                SQLAlchemy models (evidence store schema)
+  models/                SQLAlchemy models (evidence, job/requirement, matching)
   schemas/                Pydantic schemas (LLM I/O contracts)
   services/
     documents/             parsing + extraction
     evidence/               persistence layer
+    jobs/                   requirement extraction, persistence, analyze_and_match orchestration
+    matching/                deterministic MatchingEngine + scoring + persistence
   providers/
     llm/                    LLMProvider interface + Anthropic/fake implementations
 tests/unit/              unit tests (run against the fake LLM provider, no API key needed)
