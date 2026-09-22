@@ -229,11 +229,8 @@ with tab_job_search:
     for listing in search_results:
         header = listing.title + (f" @ {listing.company}" if listing.company else "")
         with st.expander(f"{header}  ·  {listing.source}"):
-            meta_bits = [
-                bit
-                for bit in [listing.location, f"posted {listing.publication_date}" if listing.publication_date else None, listing.remote_type]
-                if bit
-            ]
+            posted_bit = f"posted {listing.publication_date}" if listing.publication_date else None
+            meta_bits = [bit for bit in [listing.location, posted_bit, listing.remote_type] if bit]
             if meta_bits:
                 st.caption(" · ".join(meta_bits))
             if listing.source_url:
@@ -376,7 +373,9 @@ with tab_generate:
                     st.markdown(f"- {item}")
 
             st.markdown("**Cover letter**")
-            st.text_area("Cover letter", value=generation_view["cover_letter"], height=250, label_visibility="collapsed")
+            st.text_area(
+                "Cover letter", value=generation_view["cover_letter"], height=250, label_visibility="collapsed"
+            )
 
             with st.expander("Claim-by-claim validation"):
                 for v in generation_view["validations"]:

@@ -5,7 +5,6 @@ test_extraction.py / test_job_extraction_fake.py).
 """
 import pytest
 
-from backend.models.evidence import EvidenceStatus
 from backend.providers.llm.fake_provider import FakeLLMProvider
 from backend.schemas.evidence import ExtractedEvidenceItem
 from backend.schemas.job_listing import JobListing

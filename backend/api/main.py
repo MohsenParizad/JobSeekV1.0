@@ -11,7 +11,9 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from backend.api.middleware import RequestLoggingMiddleware, register_exception_handlers
 from backend.api.routers import applications, candidates, documents, evidence, jobs
+from backend.config import settings
 from backend.db import init_db
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
@@ -25,16 +27,18 @@ async def lifespan(_app: FastAPI):
     yield
 
 
-app = FastAPI(title="JobSeek API", version="0.5.0", lifespan=lifespan)
+app = FastAPI(title="JobSeek API", version="1.0.0", lifespan=lifespan)
 
-# The React dev server (Vite) runs on 5173 by default; a production build
-# would be served from a fixed origin configured at deploy time instead.
+# The allowed origin(s) default to the local Vite dev server; set
+# ALLOWED_ORIGINS (comma-separated) in .env for a deployed frontend origin.
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173", "http://127.0.0.1:5173"],
+    allow_origins=settings.allowed_origins,
     allow_methods=["*"],
     allow_headers=["*"],
 )
+app.add_middleware(RequestLoggingMiddleware)
+register_exception_handlers(app)
 
 app.include_router(candidates.router)
 app.include_router(documents.router)

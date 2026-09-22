@@ -124,7 +124,9 @@ class FakeLLMProvider(LLMProvider):
             return GeneratedApplication(
                 tailored_summary=f"{candidate_name} is applying for the {job_title} role{company_phrase}.",
                 emphasized_experience=[],
-                cv_suggestions=["Add and approve some evidence in your profile before generating tailored suggestions."],
+                cv_suggestions=[
+                    "Add and approve some evidence in your profile before generating tailored suggestions."
+                ],
                 cover_letter=(
                     f"Dear Hiring Team,\n\nI am writing to express interest in the {job_title} "
                     f"role{company_phrase}.\n\nSincerely,\n{candidate_name}"
@@ -143,7 +145,9 @@ class FakeLLMProvider(LLMProvider):
         return GeneratedApplication(
             tailored_summary=f"{candidate_name} brings verified experience in {concepts_sentence}.",
             emphasized_experience=top_concepts,
-            cv_suggestions=[f"Highlight your {concept} experience near the top of your CV." for concept in top_concepts[:3]],
+            cv_suggestions=[
+                f"Highlight your {concept} experience near the top of your CV." for concept in top_concepts[:3]
+            ],
             cover_letter=cover_letter,
             claims=[
                 GeneratedClaim(statement=f"experience with {concept}", concept=concept) for concept in top_concepts

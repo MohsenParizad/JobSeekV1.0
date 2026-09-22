@@ -254,16 +254,55 @@ like the Streamlit sidebar did.
   and the FastAPI routers both call these same functions.
   `analyze_and_match` also backs V0.4: pass `job_id` instead of
   `description_text` to analyze a job saved from a search result.
-- **`backend/api/main.py`** — the FastAPI app: CORS for the local Vite dev
-  server, a lifespan hook that calls `init_db()`, and five routers
-  (candidates, documents, evidence, jobs, applications), each a thin
-  HTTP-to-service translation layer with no business logic of its own.
+- **`backend/api/main.py`** — the FastAPI app: CORS (origins from
+  `ALLOWED_ORIGINS`, defaulting to the local Vite dev server), a lifespan
+  hook that calls `init_db()`, and five routers (candidates, documents,
+  evidence, jobs, applications), each a thin HTTP-to-service translation
+  layer with no business logic of its own.
+- **`backend/api/middleware.py`** — request logging (method, path, status,
+  duration) and the global exception handler: any unhandled error is
+  logged server-side with a full traceback and returned to the client as a
+  generic `{"detail": "Internal server error"}`, never the exception text.
 - **`backend/api/deps.py`** — `get_db()`, the per-request session
   dependency; `tests/api/conftest.py` overrides it with an in-memory
   SQLite engine so API tests never touch the real database file.
 - **`frontend/react-app/src/api.ts`** — the typed fetch client every React
   component uses instead of calling `fetch` directly; mirrors
   `backend/api/schemas.py`'s shapes in `src/types.ts`.
+
+## V1.0 slice — CI/CD, Docker, hardening
+
+Turns the working prototype into something a stranger could clone, test,
+and run without reading the source first:
+
+```
+git push
+        ↓
+GitHub Actions (.github/workflows/ci.yml)
+        │   - backend job: ruff check . && pytest -q
+        │   - frontend job: npm run lint && npm test && npm run build
+        │   - both required to pass before merging to main
+        ↓
+docker compose up --build
+        │   - backend/Dockerfile: FastAPI only, deliberately WITHOUT the
+        │     streamlit extra (nothing under backend/ imports it — see
+        │     pyproject.toml's optional-dependencies split)
+        │   - frontend/react-app/Dockerfile: multi-stage, node build ->
+        │     nginx serves the static bundle
+        │   - SQLite + uploaded documents persisted in a named volume
+        ↓
+Same backend/services/ as every earlier release — V1.0 adds no new
+business logic, only the scaffolding around it: request logging, a global
+exception handler that never leaks internals, configurable CORS
+(ALLOWED_ORIGINS), and docs/deployment.md describing real deployment
+options without adopting AWS/Terraform prematurely
+```
+
+The Docker images are exactly what ships to a real deployment target
+(see `docs/deployment.md`) — nothing about them is sandbox-specific.
+`mirror.gcr.io` is used instead of `docker.io` for base images purely to
+avoid Docker Hub's anonymous-pull rate limit in CI/repeated local builds;
+it resolves to the identical official images.
 
 ## Why SQLite now, Postgres later
 

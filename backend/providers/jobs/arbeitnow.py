@@ -6,7 +6,7 @@ names follow Arbeitnow's public API as of this writing; per-item parsing is
 defensive so a future field change degrades gracefully (that listing is
 skipped) instead of breaking search entirely.
 """
-from datetime import date, datetime, timezone
+from datetime import UTC, date, datetime
 
 import requests
 
@@ -63,7 +63,7 @@ class ArbeitnowProvider(JobProvider):
             publication_date = None
             created_at = entry.get("created_at")
             if isinstance(created_at, (int, float)):
-                publication_date = datetime.fromtimestamp(created_at, tz=timezone.utc).date()
+                publication_date = datetime.fromtimestamp(created_at, tz=UTC).date()
             job_types = entry.get("job_types") or []
             return JobListing(
                 source=self.name,

@@ -5,8 +5,8 @@ import pytest
 from pypdf import PdfWriter
 
 from backend.services.documents.parser import (
-    FileTooLargeError,
     MAX_FILE_SIZE_BYTES,
+    FileTooLargeError,
     UnsupportedFileTypeError,
     extract_text,
     save_upload,

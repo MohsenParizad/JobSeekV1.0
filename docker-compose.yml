@@ -1,0 +1,48 @@
+# Runs the full stack locally with Docker: FastAPI backend + React frontend
+# (served by nginx), SQLite persisted in a named volume. Requires a .env
+# file in the repo root first (cp .env.example .env — see README.md).
+#
+#   docker compose up --build
+#
+# Frontend: http://localhost:8080
+# Backend:  http://localhost:8000  (docs at /docs)
+services:
+  backend:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    ports:
+      - "8000:8000"
+    env_file:
+      - .env
+    environment:
+      # Overrides env_file for these two: they must be container-internal
+      # paths regardless of what a host .env happens to have for local
+      # (non-Docker) development.
+      DATABASE_URL: sqlite:///./data/jobseek.db
+      DOCUMENT_STORAGE_DIR: ./data/uploads
+      ALLOWED_ORIGINS: http://localhost:8080,http://127.0.0.1:8080
+    volumes:
+      - jobseek_data:/app/data
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+
+  frontend:
+    build:
+      context: .
+      dockerfile: frontend/react-app/Dockerfile
+      args:
+        # The browser calls this directly, so it must be an address the
+        # browser can reach — the backend's published host port, not a
+        # Docker-internal service name.
+        VITE_API_BASE_URL: http://localhost:8000
+    ports:
+      - "8080:80"
+    depends_on:
+      - backend
+
+volumes:
+  jobseek_data:

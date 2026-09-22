@@ -5,7 +5,6 @@ from sqlalchemy.orm import Session, sessionmaker
 from backend.config import settings
 from backend.models.base import Base
 
-
 engine = create_engine(
     settings.database_url,
     connect_args={"check_same_thread": False} if settings.database_url.startswith("sqlite") else {},

@@ -175,7 +175,9 @@ class AnthropicProvider(LLMProvider):
         valid_indices = [i for i in result.evidence_indices if 0 <= i < len(candidate_evidence)]
         if not valid_indices:
             return TransferableClassification(is_transferable=False)
-        return TransferableClassification(is_transferable=True, evidence_indices=valid_indices, explanation=result.explanation)
+        return TransferableClassification(
+            is_transferable=True, evidence_indices=valid_indices, explanation=result.explanation
+        )
 
     def generate_application(
         self,

@@ -1,0 +1,27 @@
+# Shared ignore file used by both backend/Dockerfile and
+# frontend/react-app/Dockerfile builds (each build context is the repo
+# root — see docker-compose.yml).
+
+.git
+.gitignore
+.venv
+__pycache__
+*.pyc
+*.pyo
+*.egg-info
+
+data/
+
+app/
+tests/
+docs/
+
+.env
+!.env.example
+
+frontend/react-app/node_modules
+frontend/react-app/dist
+frontend/react-app/.env
+!frontend/react-app/.env.example
+
+README.md
