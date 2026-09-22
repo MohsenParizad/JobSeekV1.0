@@ -12,12 +12,16 @@ dependencies = [
     "python-docx>=1.1",
     "python-dotenv>=1.0",
     "requests>=2.31",
+    "fastapi>=0.115",
+    "uvicorn[standard]>=0.30",
+    "python-multipart>=0.0.9",
 ]
 
 [project.optional-dependencies]
 dev = [
     "pytest>=8.0",
     "pytest-cov>=5.0",
+    "httpx>=0.27",
 ]
 
 [tool.pytest.ini_options]
@@ -32,4 +36,5 @@ build-backend = "setuptools.build_meta"
 packages = ["backend", "backend.models", "backend.schemas", "backend.services",
     "backend.services.documents", "backend.services.evidence", "backend.services.jobs",
     "backend.services.matching", "backend.services.generation",
-    "backend.providers", "backend.providers.llm", "backend.providers.jobs"]
+    "backend.providers", "backend.providers.llm", "backend.providers.jobs",
+    "backend.api", "backend.api.routers"]

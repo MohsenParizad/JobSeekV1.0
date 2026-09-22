@@ -11,16 +11,19 @@ the evidence supports.
 
 ## Status
 
-**V0.4 — Automated job discovery.** Upload a CV, get structured evidence
-extracted and approve it (V0.1); search live vacancies from Arbeitnow (and
-Adzuna, once configured) by keyword/country/location/date/work-model,
-deduplicated across providers, and save any result to analyze against your
-verified evidence — or still paste a description manually (V0.2); then
-generate a tailored summary, CV suggestions, and a cover letter with every
-checkable claim independently validated against your verified evidence
-(V0.3). Fuller application-tracking (save/status/dates) and the FastAPI +
-React rebuild land in later releases (see the roadmap in
-`docs/requirements.md`).
+**V0.5 — Productization.** The same backend now has two front doors: the
+original Streamlit app (still works, unchanged, useful for quick manual
+testing) and a FastAPI REST API (`backend/api/`) that a new React +
+TypeScript frontend (`frontend/react-app/`) talks to. Neither UI contains
+business logic — both call the exact same `backend/services/` functions
+(`analyze_and_match`, `generate_application_material`, the `*Store`
+classes) that power document evidence extraction (V0.1), job matching
+(V0.2), evidence-grounded generation with an independent claim validator
+(V0.3), and automated job discovery across Arbeitnow/Adzuna with
+deduplication (V0.4). Still SQLite (Postgres is a `DATABASE_URL` change
+whenever it's actually needed), still no authentication (still single-user
+locally). Fuller application-tracking (save/status/dates) lands in a later
+release — see the roadmap in `docs/requirements.md`.
 
 ## Setup
 
@@ -39,16 +42,45 @@ cp .env.example .env
 # https://developer.adzuna.com) — it's simply skipped otherwise.
 ```
 
+For the React frontend, you'll also need [Node.js](https://nodejs.org) 18+:
+
+```bash
+cd frontend/react-app
+npm install
+cp .env.example .env   # VITE_API_BASE_URL, defaults to http://localhost:8000
+```
+
 ## Run
+
+**Option A — Streamlit** (single process, no Node needed):
 
 ```bash
 streamlit run app/streamlit_app.py
 ```
 
+**Option B — FastAPI + React** (two processes, in separate terminals):
+
+```bash
+# terminal 1 — backend, from the repo root
+uvicorn backend.api.main:app --reload
+
+# terminal 2 — frontend
+cd frontend/react-app
+npm run dev
+```
+
+Then open the URL Vite prints (typically http://localhost:5173). The API
+itself is at http://localhost:8000 — interactive docs at
+http://localhost:8000/docs.
+
+Both options talk to the same SQLite database (`data/jobseek.db`) and the
+same `backend/services/`, so you can freely switch between them.
+
 ## Test
 
 ```bash
-pytest
+pytest                              # backend: unit + API integration tests
+cd frontend/react-app && npm run build   # frontend: type-checks and builds
 ```
 
 ## Project layout
@@ -56,6 +88,7 @@ pytest
 ```
 app/                    Streamlit UI
 backend/
+  api/                   FastAPI app, routers, request/response DTOs
   models/                SQLAlchemy models (evidence, job/requirement, matching, generation)
   schemas/                Pydantic schemas (LLM I/O contracts)
   services/
@@ -68,7 +101,10 @@ backend/
   providers/
     llm/                    LLMProvider interface + Anthropic/fake implementations
     jobs/                    JobProvider interface + Arbeitnow/Adzuna implementations
-tests/unit/              unit tests (run against the fake LLM provider, no API key needed)
+frontend/react-app/      React + TypeScript UI (Vite), talks to the FastAPI backend over HTTP
+tests/
+  unit/                  backend unit tests (fake LLM provider, no API key needed)
+  api/                   FastAPI integration tests (in-memory DB, TestClient)
 docs/                    requirements, architecture, privacy notes
 data/                    uploaded documents + local sqlite db (git-ignored)
 ```

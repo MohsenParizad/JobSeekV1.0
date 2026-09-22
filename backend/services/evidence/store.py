@@ -27,6 +27,9 @@ class EvidenceStore:
         self._session.refresh(candidate)
         return candidate
 
+    def get_candidate(self, candidate_id: str) -> Candidate | None:
+        return self._session.get(Candidate, candidate_id)
+
     # --- documents ---
 
     def save_document(

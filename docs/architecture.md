@@ -3,11 +3,19 @@
 ## Layering
 
 ```
-                         ┌─────────────────┐
-                         │  Streamlit UI   │   (V0.1–V0.4)
-                         │  React (later)  │   (V0.5+, behind a FastAPI layer)
-                         └────────┬────────┘
-                                  │
+                    ┌─────────────────┐    ┌──────────────────────┐
+                    │  Streamlit UI   │    │   React UI (V0.5+)   │
+                    │   (V0.1–V0.4,   │    │  talks to the API    │
+                    │  still works)   │    │  over HTTP only       │
+                    └────────┬────────┘    └───────────┬──────────┘
+                             │                          │
+                             │              ┌───────────▼──────────┐
+                             │              │  FastAPI (V0.5+)      │
+                             │              │  backend/api/         │
+                             │              └───────────┬──────────┘
+                             │                          │
+                             └────────────┬─────────────┘
+                                          │
           ┌───────────────────────┼──────────────────────┐
           │                       │                      │
           ▼                       ▼                      ▼
@@ -28,10 +36,14 @@
                         (SQLite now, Postgres later)
 ```
 
-The UI never talks to the LLM directly. It calls services in `backend/`,
-which are plain, independently testable Python — the LLM is one
-interchangeable component behind `backend/providers/llm/`, not the
-application's core.
+Neither UI talks to the LLM, the database, or any service directly. As of
+V0.5 there are two front doors into the same `backend/services/`: the
+original Streamlit app (kept working, useful for quick manual testing) and
+a FastAPI HTTP API (`backend/api/`) that a React frontend talks to. Both
+call the exact same orchestration functions (`analyze_and_match`,
+`generate_application_material`, the various `*Store` classes) — no
+business logic lives in either UI layer, and none was duplicated to add
+the second one.
 
 ## V0.1 slice
 
@@ -172,6 +184,45 @@ or any of V0.2/V0.3's persistence — exactly the Extensibility NFR from
 changing the matching engine"). The only shared surface both providers
 touch is the `JobProvider` interface and the canonical `JobListing` schema.
 
+## V0.5 slice — productization (FastAPI + React)
+
+The backend gets an HTTP front door, and a React app replaces Streamlit as
+the primary UI, without either one touching `backend/services/` logic:
+
+```
+React (Vite + TypeScript, frontend/react-app/)
+        │  fetch, JSON over HTTP, CORS-enabled for local dev
+        ▼
+FastAPI (backend/api/main.py + backend/api/routers/*.py)
+        │  each router is a thin translation layer: HTTP request →
+        │  backend/api/schemas.py DTO → the SAME service call the
+        │  Streamlit tab already made → DTO → HTTP response
+        ▼
+backend/services/*  (unchanged — EvidenceStore, JobStore, MatchStore,
+        GenerationStore, analyze_and_match, generate_application_material)
+```
+
+Concretely: `POST /jobs/analyze` in `backend/api/routers/jobs.py` calls the
+exact same `analyze_and_match()` the Streamlit "Job Analysis" tab calls;
+`POST /applications/generate` calls the exact same
+`generate_application_material()`. The API layer's only job is HTTP
+concerns — request parsing, status codes (404 for a missing job/candidate,
+400 for "no match yet, run analysis first"), and DTOs
+(`backend/api/schemas.py`) that are deliberately separate from both the LLM
+I/O contracts (`backend/schemas/*`) and the ORM models, so a change to any
+one of the three doesn't ripple through the others.
+
+`backend/api/deps.py` provides a per-request DB session; tests
+(`tests/api/`) override that dependency with an in-memory SQLite database
+via `app.dependency_overrides`, so the API test suite runs without ever
+touching the real `data/jobseek.db`.
+
+The database stays SQLite for V0.5 (per the roadmap, switching to Postgres
+is a `DATABASE_URL` change whenever it's actually needed — see "Why SQLite
+now, Postgres later" below), and there's no authentication yet: the app is
+still single-user, and the React app bootstraps a candidate by name exactly
+like the Streamlit sidebar did.
+
 ## Key interfaces
 
 - **`LLMProvider`** (`backend/providers/llm/base.py`) — abstracts the model
@@ -200,14 +251,25 @@ touch is the `JobProvider` interface and the canonical `JobListing` schema.
 - **`analyze_and_match`** (`backend/services/jobs/analysis.py`) /
   **`generate_application_material`** (`backend/services/generation/service.py`)
   — UI-agnostic orchestration of the V0.2/V0.3 slices; the Streamlit tabs
-  and, later, the FastAPI layer both call these same functions.
+  and the FastAPI routers both call these same functions.
   `analyze_and_match` also backs V0.4: pass `job_id` instead of
   `description_text` to analyze a job saved from a search result.
+- **`backend/api/main.py`** — the FastAPI app: CORS for the local Vite dev
+  server, a lifespan hook that calls `init_db()`, and five routers
+  (candidates, documents, evidence, jobs, applications), each a thin
+  HTTP-to-service translation layer with no business logic of its own.
+- **`backend/api/deps.py`** — `get_db()`, the per-request session
+  dependency; `tests/api/conftest.py` overrides it with an in-memory
+  SQLite engine so API tests never touch the real database file.
+- **`frontend/react-app/src/api.ts`** — the typed fetch client every React
+  component uses instead of calling `fetch` directly; mirrors
+  `backend/api/schemas.py`'s shapes in `src/types.ts`.
 
 ## Why SQLite now, Postgres later
 
 The models are defined with SQLAlchemy against a `DATABASE_URL`. SQLite
-needs no external service, so V0.1 runs with zero infrastructure setup.
-Switching to Postgres later (V0.5, per the roadmap) is a `DATABASE_URL`
+needs no external service, so the app has run with zero infrastructure
+setup since V0.1 — including through V0.5's FastAPI/React rebuild.
+Switching to Postgres, whenever it's actually needed, is a `DATABASE_URL`
 change, not a schema rewrite — see `docs/requirements.md` for the release
 plan.
