@@ -1,17 +1,21 @@
-"""Real LLM-backed extraction via the Anthropic API.
+"""Real LLM-backed calls via the Anthropic API: evidence extraction, job
+requirement extraction, transferable-evidence classification, and
+application generation.
 
-Uses forced tool-use so the model's output is schema-validated rather than
-parsed out of free text, then applies a grounding check: any item whose
-`source_text` doesn't actually appear in the input document is dropped. This
-is a first line of defence against invented evidence; the full evidence
-validator (checking generated application text against verified evidence)
-lands in V0.3.
+Uses forced tool-use so each output is schema-validated rather than parsed
+out of free text. Evidence/requirement extraction additionally apply a
+grounding check: any item whose `source_text` doesn't actually appear in
+the input document is dropped — a first line of defence against invented
+evidence. The full evidence validator for *generated* application text
+lives in backend/services/generation/validator.py, deliberately outside
+this provider, so it stays independent of the model that wrote the text.
 """
 import anthropic
 
 from backend.config import settings
 from backend.providers.llm.base import LLMProvider
 from backend.schemas.evidence import ExtractedEvidenceBatch, ExtractedEvidenceItem
+from backend.schemas.generation import EvidenceForGeneration, GeneratedApplication, RequirementMatchForGeneration
 from backend.schemas.job import ExtractedJobRequirements
 from backend.schemas.matching import EvidenceForMatching, RequirementForMatching, TransferableClassification
 
@@ -77,6 +81,33 @@ Rules:
 - Be conservative: a generally strong candidate is not itself transferable evidence — the cited \
 evidence must have a concrete, explainable link to the requirement.
 - explanation must justify the link concretely, referencing what the cited evidence actually says.
+"""
+
+GENERATION_TOOL = {
+    "name": "record_application_material",
+    "description": "Record tailored application material for a candidate, with the checkable claims made in it.",
+    "input_schema": GeneratedApplication.model_json_schema(),
+}
+
+GENERATION_SYSTEM_PROMPT = """\
+You write tailored job-application material for a candidate, given only their VERIFIED evidence and \
+a job's requirement-match results. This material is checked by an automated validator afterward, so \
+follow these rules exactly.
+
+Rules:
+- You may reference ONLY the skills, technologies, and experience listed in the candidate's verified \
+evidence below. Never state or imply the candidate has a qualification that is not in that list — \
+even one mentioned in the job's requirement matches as a gap ("missing").
+- For every concrete, checkable claim you make in tailored_summary, cv_suggestions, or cover_letter \
+(e.g. "experience with X", "N years in Y", "skilled in Z"), add one entry to `claims` with the exact \
+phrase used and the underlying concept, so every claim can be automatically checked against the \
+evidence list. Do not omit any claim you make.
+- Where a job requirement has no verified evidence ("missing" in the match results), do not paper \
+over it with an implied qualification. You may address it honestly — e.g. by emphasizing genuinely \
+transferable strengths already in the evidence — but never assert direct experience that isn't \
+backed by the evidence list.
+- Prefer concrete, specific language over generic enthusiasm. Ground every claim in what the \
+evidence actually says.
 """
 
 
@@ -145,6 +176,39 @@ class AnthropicProvider(LLMProvider):
         if not valid_indices:
             return TransferableClassification(is_transferable=False)
         return TransferableClassification(is_transferable=True, evidence_indices=valid_indices, explanation=result.explanation)
+
+    def generate_application(
+        self,
+        candidate_name: str,
+        job_title: str,
+        company: str | None,
+        verified_evidence: list[EvidenceForGeneration],
+        requirement_matches: list[RequirementMatchForGeneration],
+    ) -> GeneratedApplication:
+        evidence_listing = (
+            "\n".join(f"- [{e.category}] {e.concept}: {e.description}" for e in verified_evidence) or "(none)"
+        )
+        match_listing = (
+            "\n".join(f"- {rm.concept} ({rm.importance}): {rm.match_type}" for rm in requirement_matches)
+            or "(no matching run available)"
+        )
+        job_line = f"Job: {job_title}" + (f" at {company}" if company else "")
+        prompt = (
+            f"Candidate: {candidate_name}\n"
+            f"{job_line}\n\n"
+            f"Candidate's verified evidence:\n{evidence_listing}\n\n"
+            f"Job requirement match results:\n{match_listing}\n"
+        )
+        response = self._client.messages.create(
+            model=self._model,
+            max_tokens=4096,
+            system=GENERATION_SYSTEM_PROMPT,
+            tools=[GENERATION_TOOL],
+            tool_choice={"type": "tool", "name": "record_application_material"},
+            messages=[{"role": "user", "content": prompt}],
+        )
+        tool_use = next(block for block in response.content if block.type == "tool_use")
+        return GeneratedApplication.model_validate(tool_use.input)
 
 
 def _filter_grounded(items: list, source_document_text: str) -> list:

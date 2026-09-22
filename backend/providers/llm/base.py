@@ -6,6 +6,7 @@ job providers in later releases.
 from abc import ABC, abstractmethod
 
 from backend.schemas.evidence import ExtractedEvidenceItem
+from backend.schemas.generation import EvidenceForGeneration, GeneratedApplication, RequirementMatchForGeneration
 from backend.schemas.job import ExtractedJobRequirements
 from backend.schemas.matching import EvidenceForMatching, RequirementForMatching, TransferableClassification
 
@@ -32,5 +33,24 @@ class LLMProvider(ABC):
         matcher (backend/services/matching/engine.py) already found no
         direct or related evidence for. Called only for that fallback case —
         it can never override a deterministic match.
+        """
+        raise NotImplementedError
+
+    @abstractmethod
+    def generate_application(
+        self,
+        candidate_name: str,
+        job_title: str,
+        company: str | None,
+        verified_evidence: list[EvidenceForGeneration],
+        requirement_matches: list[RequirementMatchForGeneration],
+    ) -> GeneratedApplication:
+        """Draft tailored application material (summary, CV suggestions, cover
+        letter), grounded only in `verified_evidence`, plus a self-reported
+        list of every checkable claim made — which
+        backend/services/generation/validator.py then independently checks
+        against that same evidence. The model is instructed never to assert
+        a qualification `verified_evidence` doesn't support, but that
+        instruction is advisory; the validator is the actual safeguard.
         """
         raise NotImplementedError

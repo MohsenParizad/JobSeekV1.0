@@ -83,23 +83,74 @@ about the one case the deterministic pass can't resolve — whether *other*
 verified evidence transfers to a requirement with no direct/related hit — and
 that verdict can never override a deterministic direct/related classification.
 
+## V0.3 slice — evidence-grounded generation
+
+Tailored application material, generated only from verified evidence and an
+existing job match, then independently checked claim-by-claim:
+
+```
+Verified evidence + job requirement matches (from V0.2)
+        ↓
+LLMProvider.generate_application
+        │   - instructed to reference ONLY the evidence it's given
+        │   - self-reports every checkable claim it makes (statement + concept)
+        ↓
+GeneratedApplication (tailored summary, CV suggestions, cover letter, claims[])
+        ↓
+validate_claims (backend/services/generation/validator.py)
+        │   - deterministic, reuses text_matching.py (the SAME grounding
+        │     logic the MatchingEngine uses) — independent of the model
+        │     that wrote the text, so it isn't grading its own homework
+        ↓
+ClaimValidation per claim: supported / unsupported, with the matched evidence cited
+        ↓
+GenerationStore (persist the draft + its self-reported claims)
+        ↓
+Streamlit "Generate Application" tab: draft + a claim-by-claim validation
+panel that prominently flags anything unsupported before the user sends it
+```
+
+The system prompt tells the model never to assert a qualification the
+evidence doesn't support — but that instruction is advisory, not the
+safeguard. The actual guarantee is `validate_claims`: it runs regardless of
+what the model did, checks each self-reported claim against the
+candidate's verified evidence using the same keyword/synonym matcher as
+job-requirement matching, and reports supported/unsupported so an
+unsupported claim (e.g. a generated "experience with AWS" when nothing in
+the evidence store mentions AWS) is always caught before the candidate
+sends the material — this is the "Evidence-Grounded Generation" principle
+from the product vision made concrete. Because validation is a pure
+function of (claims, verified evidence) rather than baked into the stored
+record, re-viewing a draft always re-checks it against the candidate's
+*current* evidence (`revalidate` in `backend/services/generation/service.py`)
+— so approving new evidence later can turn a previously-unsupported claim
+into a supported one, and vice versa.
+
 ## Key interfaces
 
 - **`LLMProvider`** (`backend/providers/llm/base.py`) — abstracts the model
-  calls behind `extract_evidence`, `extract_job_requirements`, and
-  `classify_transferable`. Two implementations exist from day one:
-  `AnthropicProvider` (real calls, forced tool-use + a source-text grounding
-  check) and `FakeLLMProvider` (deterministic, used in tests and whenever no
-  API key is configured), so the rest of the app never depends on a live key.
+  calls behind `extract_evidence`, `extract_job_requirements`,
+  `classify_transferable`, and `generate_application`. Two implementations
+  exist from day one: `AnthropicProvider` (real calls, forced tool-use +
+  grounding checks) and `FakeLLMProvider` (deterministic, used in tests and
+  whenever no API key is configured), so the rest of the app never depends
+  on a live key.
+- **`backend/services/text_matching.py`** — the shared keyword/synonym
+  grounding primitives used by both the MatchingEngine and the claim
+  validator, so "does concept X appear in this evidence" is answered the
+  same way everywhere.
 - **`EvidenceStore`** (`backend/services/evidence/store.py`) — the only
   component that touches the database for evidence.
 - **`JobStore`** (`backend/services/jobs/store.py`) — the only component
   that touches the database for jobs/requirements.
 - **`MatchStore`** (`backend/services/matching/store.py`) — the only
   component that touches the database for matching runs.
-- **`analyze_and_match`** (`backend/services/jobs/analysis.py`) — the
-  UI-agnostic orchestration of the V0.2 slice above; the Streamlit tab and,
-  later, the FastAPI layer both call this one function.
+- **`GenerationStore`** (`backend/services/generation/store.py`) — the only
+  component that touches the database for generated application material.
+- **`analyze_and_match`** (`backend/services/jobs/analysis.py`) /
+  **`generate_application_material`** (`backend/services/generation/service.py`)
+  — UI-agnostic orchestration of the V0.2/V0.3 slices; the Streamlit tabs
+  and, later, the FastAPI layer both call these same functions.
 
 ## Why SQLite now, Postgres later
 

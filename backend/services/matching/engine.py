@@ -11,24 +11,13 @@ This intentionally stays a keyword/synonym matcher rather than a semantic
 one: it's cheap, fully offline, and its decisions are easy to explain,
 which matters more here than recall. See docs/architecture.md.
 """
-import re
 from dataclasses import dataclass
 
 from backend.models.evidence import Evidence
 from backend.models.job import JobRequirement
 from backend.providers.llm.base import LLMProvider
 from backend.schemas.matching import EvidenceForMatching, RequirementForMatching
-
-_STOPWORDS = {"and", "the", "with", "of", "in", "for", "a", "an", "to", "on"}
-
-# variant -> canonical form, so e.g. "Postgres" and "PostgreSQL" are treated as the same concept
-_SYNONYMS: dict[str, str] = {
-    "postgres": "postgresql",
-    "psql": "postgresql",
-    "ml": "machine learning",
-    "js": "javascript",
-    "k8s": "kubernetes",
-}
+from backend.services.text_matching import concept_matches, concepts_related
 
 _MATCH_WEIGHTS = {"direct": 3, "related": 2, "transferable": 1, "missing": 0}
 _IMPORTANCE_WEIGHTS = {"required": 1.0, "preferred": 0.5}
@@ -39,18 +28,6 @@ class MatchResult:
     match_type: str  # "direct" | "related" | "transferable" | "missing"
     matched_evidence_ids: list[str]
     explanation: str
-
-
-def _normalize(text: str) -> str:
-    return re.sub(r"[^a-z0-9 ]", " ", text.lower()).strip()
-
-
-def _canonical(term: str) -> str:
-    return _SYNONYMS.get(term, term)
-
-
-def _significant_tokens(text: str) -> set[str]:
-    return {token for token in _normalize(text).split() if len(token) >= 3 and token not in _STOPWORDS}
 
 
 class MatchingEngine:
@@ -106,21 +83,11 @@ class MatchingEngine:
 
     @staticmethod
     def _is_direct(requirement: JobRequirement, evidence: Evidence) -> bool:
-        norm_req = _normalize(requirement.concept)
-        norm_ev = _normalize(evidence.concept)
-        if not norm_req:
-            return False
-        if norm_req == norm_ev:
-            return True
-        if _canonical(norm_req) == _canonical(norm_ev):
-            return True
-        return bool(re.search(rf"\b{re.escape(norm_req)}\b", _normalize(evidence.description)))
+        return concept_matches(requirement.concept, evidence.concept, evidence.description)
 
     @staticmethod
     def _is_related(requirement: JobRequirement, evidence: Evidence) -> bool:
-        req_tokens = _significant_tokens(requirement.concept)
-        ev_tokens = _significant_tokens(evidence.concept) | _significant_tokens(evidence.description)
-        return bool(req_tokens & ev_tokens)
+        return concepts_related(requirement.concept, evidence.concept, evidence.description)
 
 
 def score_matches(pairs: list[tuple[JobRequirement, MatchResult]]) -> float:

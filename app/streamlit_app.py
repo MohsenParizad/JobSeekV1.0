@@ -18,6 +18,8 @@ from backend.services.documents.parser import (
     save_upload,
 )
 from backend.services.evidence.store import EvidenceStore
+from backend.services.generation.service import generate_application_material, revalidate
+from backend.services.generation.store import GenerationStore
 from backend.services.jobs.analysis import analyze_and_match
 from backend.services.jobs.store import JobStore
 from backend.services.matching.store import MatchStore
@@ -48,6 +50,25 @@ def _build_match_view(session, job, job_match) -> list[dict]:
         )
     return rows
 
+
+def _build_generation_view(record, validations) -> dict:
+    return {
+        "tailored_summary": record.tailored_summary,
+        "emphasized_experience": record.emphasized_experience,
+        "cv_suggestions": record.cv_suggestions,
+        "cover_letter": record.cover_letter,
+        "validations": [
+            {
+                "statement": v.statement,
+                "concept": v.concept,
+                "supported": v.supported,
+                "matched_evidence_concept": v.matched_evidence_concept,
+            }
+            for v in validations
+        ],
+    }
+
+
 DOCUMENT_TYPE_LABELS = {
     DocumentType.CV: "CV",
     DocumentType.EMPLOYMENT_REFERENCE: "Employment reference (Arbeitszeugnis)",
@@ -75,7 +96,9 @@ with get_session() as session:
     candidate = EvidenceStore(session).get_or_create_candidate(candidate_name)
     candidate_id = candidate.id
 
-tab_documents, tab_profile, tab_job_analysis = st.tabs(["Documents", "Candidate Profile", "Job Analysis"])
+tab_documents, tab_profile, tab_job_analysis, tab_generate = st.tabs(
+    ["Documents", "Candidate Profile", "Job Analysis", "Generate Application"]
+)
 
 with tab_documents:
     st.subheader("Upload a document")
@@ -222,3 +245,83 @@ with tab_job_analysis:
                 cited = ", ".join(e["concept"] for e in row["matched_evidence"])
                 citation = f" _(from: {cited})_" if cited else ""
                 st.markdown(f"- {marker} **{row['concept']}** ({row['importance']}) — {row['explanation']}{citation}")
+
+with tab_generate:
+    st.subheader("Generate tailored application material")
+    st.caption(
+        "Every claim below is checked against your verified evidence by an independent validator — "
+        "not just asked of the model that wrote the text."
+    )
+
+    with get_session() as session:
+        jobs_for_generation = JobStore(session).list_jobs()
+
+    if not jobs_for_generation:
+        st.caption("Analyze a job in the Job Analysis tab first.")
+    else:
+        gen_job_options = {}
+        for job in jobs_for_generation:
+            label = job.title + (f" @ {job.company}" if job.company else "")
+            gen_job_options[f"{label}  ({job.created_at:%Y-%m-%d})"] = job.id
+        gen_selected_label = st.selectbox("Job", list(gen_job_options.keys()), key="generate_job_select")
+        gen_job_id = gen_job_options[gen_selected_label]
+
+        with get_session() as session:
+            existing_record = GenerationStore(session).get_latest(candidate_id, gen_job_id)
+            generation_view = None
+            if existing_record is not None:
+                verified_evidence = EvidenceStore(session).list_evidence(candidate_id, status=EvidenceStatus.APPROVED)
+                validations = revalidate(existing_record, verified_evidence)
+                generation_view = _build_generation_view(existing_record, validations)
+
+        button_label = "Regenerate" if generation_view else "Generate application material"
+        if st.button(button_label):
+            try:
+                with st.spinner("Generating tailored application material..."):
+                    with get_session() as session:
+                        record, validations = generate_application_material(
+                            session, candidate_id, candidate_name, gen_job_id, get_llm_provider()
+                        )
+                        generation_view = _build_generation_view(record, validations)
+                st.success("Generated.")
+            except ValueError as exc:
+                st.error(str(exc))
+
+        if generation_view is not None:
+            st.divider()
+            unsupported = [v for v in generation_view["validations"] if not v["supported"]]
+            if unsupported:
+                st.error(
+                    f"⚠ {len(unsupported)} claim(s) could not be verified against your evidence — "
+                    "review before sending this application."
+                )
+                for v in unsupported:
+                    st.markdown(f'- ❌ "{v["statement"]}" (concept: {v["concept"]}) — no matching verified evidence')
+            elif generation_view["validations"]:
+                st.success("✓ Every claim in this material is grounded in your verified evidence.")
+
+            st.markdown("**Tailored summary**")
+            st.write(generation_view["tailored_summary"])
+
+            if generation_view["emphasized_experience"]:
+                st.markdown("**Experience to emphasize**")
+                for item in generation_view["emphasized_experience"]:
+                    st.markdown(f"- {item}")
+
+            if generation_view["cv_suggestions"]:
+                st.markdown("**CV suggestions**")
+                for item in generation_view["cv_suggestions"]:
+                    st.markdown(f"- {item}")
+
+            st.markdown("**Cover letter**")
+            st.text_area("Cover letter", value=generation_view["cover_letter"], height=250, label_visibility="collapsed")
+
+            with st.expander("Claim-by-claim validation"):
+                for v in generation_view["validations"]:
+                    icon = "✓" if v["supported"] else "❌"
+                    note = (
+                        f" (matches verified evidence: {v['matched_evidence_concept']})"
+                        if v["supported"]
+                        else " (no matching verified evidence)"
+                    )
+                    st.markdown(f'- {icon} "{v["statement"]}"{note}')

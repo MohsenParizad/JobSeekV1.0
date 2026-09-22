@@ -8,6 +8,12 @@ import re
 
 from backend.providers.llm.base import LLMProvider
 from backend.schemas.evidence import ExtractedEvidenceItem
+from backend.schemas.generation import (
+    EvidenceForGeneration,
+    GeneratedApplication,
+    GeneratedClaim,
+    RequirementMatchForGeneration,
+)
 from backend.schemas.job import ExtractedJobRequirements, ExtractedRequirementItem
 from backend.schemas.matching import EvidenceForMatching, RequirementForMatching, TransferableClassification
 
@@ -99,3 +105,47 @@ class FakeLLMProvider(LLMProvider):
         # without an API key. Tests that exercise the transferable upgrade
         # path inject a small custom stub instead (see test_matching_engine.py).
         return TransferableClassification(is_transferable=False)
+
+    def generate_application(
+        self,
+        candidate_name: str,
+        job_title: str,
+        company: str | None,
+        verified_evidence: list[EvidenceForGeneration],
+        requirement_matches: list[RequirementMatchForGeneration],
+    ) -> GeneratedApplication:
+        # Deliberately simple and always fully grounded: every claim it makes
+        # cites a concept straight from verified_evidence. It exists to keep
+        # the generation workflow testable without an API key. Tests that
+        # exercise the claim validator's rejection path inject a small
+        # custom stub that hallucinates instead (see test_generation.py).
+        company_phrase = f" at {company}" if company else ""
+        if not verified_evidence:
+            return GeneratedApplication(
+                tailored_summary=f"{candidate_name} is applying for the {job_title} role{company_phrase}.",
+                emphasized_experience=[],
+                cv_suggestions=["Add and approve some evidence in your profile before generating tailored suggestions."],
+                cover_letter=(
+                    f"Dear Hiring Team,\n\nI am writing to express interest in the {job_title} "
+                    f"role{company_phrase}.\n\nSincerely,\n{candidate_name}"
+                ),
+                claims=[],
+            )
+
+        top_concepts = [e.concept for e in verified_evidence[:5]]
+        concepts_sentence = ", ".join(top_concepts)
+        cover_letter = (
+            f"Dear Hiring Team,\n\n"
+            f"I am writing to apply for the {job_title} role{company_phrase}. "
+            f"My background includes hands-on experience with {concepts_sentence}.\n\n"
+            f"Sincerely,\n{candidate_name}"
+        )
+        return GeneratedApplication(
+            tailored_summary=f"{candidate_name} brings verified experience in {concepts_sentence}.",
+            emphasized_experience=top_concepts,
+            cv_suggestions=[f"Highlight your {concept} experience near the top of your CV." for concept in top_concepts[:3]],
+            cover_letter=cover_letter,
+            claims=[
+                GeneratedClaim(statement=f"experience with {concept}", concept=concept) for concept in top_concepts
+            ],
+        )

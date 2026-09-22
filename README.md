@@ -11,12 +11,14 @@ the evidence supports.
 
 ## Status
 
-**V0.2 — Job matching.** Upload a CV, get structured evidence extracted,
-review/approve it (V0.1), then paste a job description and see it matched
-against your verified evidence: each requirement is classified as direct,
-related, transferable, or a gap, with citations back to the evidence and a
-deterministic fit score. Automated job discovery and AI-generated
-application material land in later releases (see the roadmap in
+**V0.3 — AI application generation.** Upload a CV, get structured evidence
+extracted and approve it (V0.1); paste a job description and see it matched
+against your verified evidence, requirement by requirement (V0.2); then
+generate a tailored summary, CV suggestions, and a cover letter — every
+checkable claim in that material is independently validated against your
+verified evidence, and anything unsupported (e.g. a claimed skill you never
+approved) is flagged before you'd send it. Automated job discovery and
+fuller application-tracking land in later releases (see the roadmap in
 `docs/requirements.md`).
 
 ## Setup
@@ -49,13 +51,15 @@ pytest
 ```
 app/                    Streamlit UI
 backend/
-  models/                SQLAlchemy models (evidence, job/requirement, matching)
+  models/                SQLAlchemy models (evidence, job/requirement, matching, generation)
   schemas/                Pydantic schemas (LLM I/O contracts)
   services/
     documents/             parsing + extraction
     evidence/               persistence layer
     jobs/                   requirement extraction, persistence, analyze_and_match orchestration
     matching/                deterministic MatchingEngine + scoring + persistence
+    generation/              application generation, claim validator, persistence
+    text_matching.py         shared keyword/synonym grounding logic (matching + validator)
   providers/
     llm/                    LLMProvider interface + Anthropic/fake implementations
 tests/unit/              unit tests (run against the fake LLM provider, no API key needed)
