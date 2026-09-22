@@ -11,14 +11,15 @@ the evidence supports.
 
 ## Status
 
-**V0.3 — AI application generation.** Upload a CV, get structured evidence
-extracted and approve it (V0.1); paste a job description and see it matched
-against your verified evidence, requirement by requirement (V0.2); then
-generate a tailored summary, CV suggestions, and a cover letter — every
-checkable claim in that material is independently validated against your
-verified evidence, and anything unsupported (e.g. a claimed skill you never
-approved) is flagged before you'd send it. Automated job discovery and
-fuller application-tracking land in later releases (see the roadmap in
+**V0.4 — Automated job discovery.** Upload a CV, get structured evidence
+extracted and approve it (V0.1); search live vacancies from Arbeitnow (and
+Adzuna, once configured) by keyword/country/location/date/work-model,
+deduplicated across providers, and save any result to analyze against your
+verified evidence — or still paste a description manually (V0.2); then
+generate a tailored summary, CV suggestions, and a cover letter with every
+checkable claim independently validated against your verified evidence
+(V0.3). Fuller application-tracking (save/status/dates) and the FastAPI +
+React rebuild land in later releases (see the roadmap in
 `docs/requirements.md`).
 
 ## Setup
@@ -29,9 +30,13 @@ source .venv/bin/activate
 pip install -e ".[dev]"
 
 cp .env.example .env
-# edit .env and set ANTHROPIC_API_KEY to use real extraction.
-# Without a key, the app falls back to a deterministic fake extractor
-# so you can still exercise the full workflow.
+# edit .env and set ANTHROPIC_API_KEY to use real extraction/matching/generation.
+# Without a key, the app falls back to a deterministic fake provider so you
+# can still exercise the full workflow.
+#
+# Job search works with zero setup (Arbeitnow needs no credentials). To also
+# search Adzuna, set ADZUNA_APP_ID / ADZUNA_APP_KEY (register at
+# https://developer.adzuna.com) — it's simply skipped otherwise.
 ```
 
 ## Run
@@ -56,12 +61,13 @@ backend/
   services/
     documents/             parsing + extraction
     evidence/               persistence layer
-    jobs/                   requirement extraction, persistence, analyze_and_match orchestration
+    jobs/                   requirement extraction, search orchestration, dedup, persistence
     matching/                deterministic MatchingEngine + scoring + persistence
     generation/              application generation, claim validator, persistence
     text_matching.py         shared keyword/synonym grounding logic (matching + validator)
   providers/
     llm/                    LLMProvider interface + Anthropic/fake implementations
+    jobs/                    JobProvider interface + Arbeitnow/Adzuna implementations
 tests/unit/              unit tests (run against the fake LLM provider, no API key needed)
 docs/                    requirements, architecture, privacy notes
 data/                    uploaded documents + local sqlite db (git-ignored)

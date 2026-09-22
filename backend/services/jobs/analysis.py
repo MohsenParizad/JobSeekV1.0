@@ -1,6 +1,7 @@
 """Orchestrates a full job-analysis run: extract requirements from a job
-description, persist the job, match each requirement against the
-candidate's verified evidence, and persist the match.
+description (or reuse an already-searched job listing's), persist the job,
+match each requirement against the candidate's verified evidence, and
+persist the match.
 
 Kept UI-agnostic — the Streamlit app calls this one function, and it's
 directly unit-testable and reusable from the future FastAPI layer without
@@ -22,10 +23,27 @@ def analyze_and_match(
     session: Session,
     candidate_id: str,
     llm_provider: LLMProvider,
-    description_text: str,
+    description_text: str | None = None,
+    job_id: str | None = None,
 ) -> tuple[Job, JobMatch]:
-    extracted = llm_provider.extract_job_requirements(description_text)
-    job = JobStore(session).save_job(extracted, raw_description=description_text)
+    """Provide either `description_text` (manual entry — creates a new Job)
+    or `job_id` (an existing Job, typically saved from a job search — its
+    requirements are extracted from its stored description if it doesn't
+    have them yet). Exactly one must be given.
+    """
+    job_store = JobStore(session)
+    if job_id is not None:
+        job = job_store.get_job(job_id)
+        if job is None:
+            raise ValueError(f"Job {job_id} not found")
+        if not job.requirements:
+            extracted = llm_provider.extract_job_requirements(job.raw_description)
+            job = job_store.attach_requirements(job.id, extracted)
+    elif description_text:
+        extracted = llm_provider.extract_job_requirements(description_text)
+        job = job_store.save_job(extracted, raw_description=description_text)
+    else:
+        raise ValueError("Provide either description_text or job_id")
 
     verified_evidence = EvidenceStore(session).list_evidence(candidate_id, status=EvidenceStatus.APPROVED)
 

@@ -11,6 +11,7 @@ dependencies = [
     "pypdf>=4.3",
     "python-docx>=1.1",
     "python-dotenv>=1.0",
+    "requests>=2.31",
 ]
 
 [project.optional-dependencies]
@@ -29,5 +30,6 @@ build-backend = "setuptools.build_meta"
 
 [tool.setuptools]
 packages = ["backend", "backend.models", "backend.schemas", "backend.services",
-    "backend.services.documents", "backend.services.evidence",
-    "backend.providers", "backend.providers.llm"]
+    "backend.services.documents", "backend.services.evidence", "backend.services.jobs",
+    "backend.services.matching", "backend.services.generation",
+    "backend.providers", "backend.providers.llm", "backend.providers.jobs"]

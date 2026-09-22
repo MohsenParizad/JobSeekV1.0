@@ -1,13 +1,16 @@
 """Job + requirement domain model (see docs/architecture.md).
 
-V0.2 only supports manually-entered job descriptions (`source="manual"`);
-V0.4 adds job providers that populate the same tables with
-`source="arbeitnow"`/`"adzuna"` etc., without changing this schema.
+V0.1-V0.3 only supported manually-entered job descriptions (`source="manual"`).
+V0.4 adds job providers (`source="arbeitnow"`/`"adzuna"`) that populate the
+same table via the canonical listing fields below, added at search time and
+before any requirement extraction has run — a Job row can exist with no
+`requirements` yet, and gets them attached once the candidate chooses to
+analyze it (see JobStore.attach_requirements).
 """
 import enum
-from datetime import datetime
+from datetime import date, datetime
 
-from sqlalchemy import DateTime, Enum, ForeignKey, String, Text
+from sqlalchemy import Date, DateTime, Enum, Float, ForeignKey, String, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from backend.models.base import Base
@@ -38,6 +41,21 @@ class Job(Base):
     work_model: Mapped[str | None] = mapped_column(String(50), nullable=True)
     raw_description: Mapped[str] = mapped_column(Text)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+    # Canonical listing fields (see docs/requirements.md), populated when this
+    # Job came from a JobProvider search rather than manual entry. All
+    # nullable since a manually-pasted job description has none of them.
+    external_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    location: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    country: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    publication_date: Mapped[date | None] = mapped_column(Date, nullable=True)
+    employment_type: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    remote_type: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    salary_min: Mapped[float | None] = mapped_column(Float, nullable=True)
+    salary_max: Mapped[float | None] = mapped_column(Float, nullable=True)
+    currency: Mapped[str | None] = mapped_column(String(10), nullable=True)
+    source_url: Mapped[str | None] = mapped_column(String(1000), nullable=True)
+    retrieved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
     requirements: Mapped[list["JobRequirement"]] = relationship(back_populates="job", cascade="all, delete-orphan")
 

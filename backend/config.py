@@ -14,6 +14,8 @@ class Settings:
     document_storage_dir: Path
     anthropic_api_key: str | None
     anthropic_model: str
+    adzuna_app_id: str | None
+    adzuna_app_key: str | None
 
 
 def load_settings() -> Settings:
@@ -22,6 +24,8 @@ def load_settings() -> Settings:
         document_storage_dir=Path(os.getenv("DOCUMENT_STORAGE_DIR", "./data/uploads")),
         anthropic_api_key=os.getenv("ANTHROPIC_API_KEY") or None,
         anthropic_model=os.getenv("ANTHROPIC_MODEL", "claude-sonnet-5"),
+        adzuna_app_id=os.getenv("ADZUNA_APP_ID") or None,
+        adzuna_app_key=os.getenv("ADZUNA_APP_KEY") or None,
     )
 
 

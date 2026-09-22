@@ -15,8 +15,9 @@
           │                       │                      │
           ▼                       ▼                      ▼
    Parsing                 Job Providers            LLMProvider interface
-   Extraction               Normalization             (Anthropic / fake)
-   Validation               Deduplication
+   Extraction               (Arbeitnow / Adzuna)      (Anthropic / fake)
+   Validation               Normalization
+                             Deduplication
           │                       │                      │
           └───────────────────────┼──────────────────────┘
                                   ▼
@@ -126,6 +127,51 @@ record, re-viewing a draft always re-checks it against the candidate's
 — so approving new evidence later can turn a previously-unsupported claim
 into a supported one, and vice versa.
 
+## V0.4 slice — automated job discovery
+
+Search external providers, normalize, deduplicate, and let the candidate
+turn any result into an analyzed job without re-pasting its description:
+
+```
+Search form (keywords, country, location, published-after, work model)
+        ↓
+search_all_providers (backend/services/jobs/search.py)
+        │   - calls every configured JobProvider (ArbeitnowProvider always;
+        │     AdzunaProvider once ADZUNA_APP_ID/APP_KEY are set)
+        │   - a provider raising JobSearchError is caught and reported,
+        │     never lets one provider's outage break the others' results
+        │     (Reliability NFR)
+        ↓
+Each provider normalizes its raw response into the canonical JobListing
+schema (schemas/job_listing.py) — the rest of the app never knows which
+provider a listing came from
+        ↓
+deduplicate_listings (backend/services/jobs/deduplication.py)
+        │   - deterministic: normalized company + title + location
+        │   - explicitly NOT an LLM call, per docs/requirements.md's
+        │     guidance to start deduplication with conventional algorithms
+        ↓
+Streamlit "Job Search" tab: results list, "Save & analyze" per listing
+        ↓
+JobStore.save_job_listing (persist as a Job row, source="arbeitnow"/"adzuna",
+        idempotent per (source, external_id) — re-saving a listing already
+        fetched in an earlier search returns the existing row)
+        ↓
+analyze_and_match(job_id=...) — the SAME V0.2 function, extended to accept
+        an existing job as an alternative to description_text: extracts
+        requirements from the listing's stored description, attaches them,
+        then matches exactly as the manual-entry path already did
+        ↓
+Job Analysis / Generate Application tabs work unchanged — they don't know
+or care whether a Job came from manual entry or a provider search
+```
+
+Adding Adzuna required zero changes to `MatchingEngine`, `validate_claims`,
+or any of V0.2/V0.3's persistence — exactly the Extensibility NFR from
+`docs/requirements.md` ("adding another job provider shouldn't require
+changing the matching engine"). The only shared surface both providers
+touch is the `JobProvider` interface and the canonical `JobListing` schema.
+
 ## Key interfaces
 
 - **`LLMProvider`** (`backend/providers/llm/base.py`) — abstracts the model
@@ -147,10 +193,16 @@ into a supported one, and vice versa.
   component that touches the database for matching runs.
 - **`GenerationStore`** (`backend/services/generation/store.py`) — the only
   component that touches the database for generated application material.
+- **`JobProvider`** (`backend/providers/jobs/base.py`) — abstracts one job
+  source behind `search_jobs(...) -> list[JobListing]`. `ArbeitnowProvider`
+  needs no credentials; `AdzunaProvider` is only registered (see
+  `backend/providers/jobs/__init__.py`) once its API keys are configured.
 - **`analyze_and_match`** (`backend/services/jobs/analysis.py`) /
   **`generate_application_material`** (`backend/services/generation/service.py`)
   — UI-agnostic orchestration of the V0.2/V0.3 slices; the Streamlit tabs
   and, later, the FastAPI layer both call these same functions.
+  `analyze_and_match` also backs V0.4: pass `job_id` instead of
+  `description_text` to analyze a job saved from a search result.
 
 ## Why SQLite now, Postgres later
 

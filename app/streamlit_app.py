@@ -4,11 +4,14 @@ Streamlit is used here deliberately per docs/architecture.md — this UI calls
 backend services directly and holds no business logic itself; a FastAPI +
 React split happens in V0.5 without touching backend/.
 """
+from datetime import date, timedelta
+
 import streamlit as st
 
 from backend.config import settings
 from backend.db import get_session, init_db
 from backend.models.evidence import DocumentType, EvidenceStatus
+from backend.providers.jobs import get_job_providers
 from backend.providers.llm import get_llm_provider
 from backend.services.documents.extraction import EvidenceExtractionService
 from backend.services.documents.parser import (
@@ -21,6 +24,7 @@ from backend.services.evidence.store import EvidenceStore
 from backend.services.generation.service import generate_application_material, revalidate
 from backend.services.generation.store import GenerationStore
 from backend.services.jobs.analysis import analyze_and_match
+from backend.services.jobs.search import search_all_providers
 from backend.services.jobs.store import JobStore
 from backend.services.matching.store import MatchStore
 
@@ -96,8 +100,8 @@ with get_session() as session:
     candidate = EvidenceStore(session).get_or_create_candidate(candidate_name)
     candidate_id = candidate.id
 
-tab_documents, tab_profile, tab_job_analysis, tab_generate = st.tabs(
-    ["Documents", "Candidate Profile", "Job Analysis", "Generate Application"]
+tab_documents, tab_profile, tab_job_search, tab_job_analysis, tab_generate = st.tabs(
+    ["Documents", "Candidate Profile", "Job Search", "Job Analysis", "Generate Application"]
 )
 
 with tab_documents:
@@ -184,6 +188,64 @@ with tab_profile:
             st.markdown(f"**{category.title()}**")
             for item in items:
                 st.markdown(f"- ☑ {item['concept']} — {item['description']}")
+
+with tab_job_search:
+    st.subheader("Search for vacancies")
+    st.caption(
+        "Searches Arbeitnow (always available) and Adzuna (if ADZUNA_APP_ID/ADZUNA_APP_KEY are set in .env), "
+        "deduplicates results across providers, and lets you save any listing to analyze against your evidence."
+    )
+
+    col_keywords, col_country, col_location = st.columns(3)
+    search_keywords = col_keywords.text_input("Keywords", key="search_keywords")
+    search_country = col_country.text_input("Country code (e.g. de, gb, us)", key="search_country")
+    search_location = col_location.text_input("Location", key="search_location")
+
+    col_days, col_work_model = st.columns(2)
+    days_back = col_days.number_input("Published in the last N days (0 = any time)", min_value=0, value=0, step=1)
+    work_model_label = col_work_model.selectbox("Work model", ["Any", "Remote", "Hybrid", "Onsite"])
+    search_work_model = None if work_model_label == "Any" else work_model_label.lower()
+
+    if st.button("Search"):
+        published_after = date.today() - timedelta(days=int(days_back)) if days_back else None
+        with st.spinner("Searching job providers..."):
+            search_result = search_all_providers(
+                get_job_providers(),
+                search_keywords,
+                country=search_country or None,
+                location=search_location or None,
+                published_after=published_after,
+                work_model=search_work_model,
+            )
+        st.session_state["job_search_results"] = search_result.listings
+        st.session_state["job_search_provider_errors"] = search_result.provider_errors
+
+    for provider_name, message in (st.session_state.get("job_search_provider_errors") or {}).items():
+        st.warning(f"{provider_name} search failed (other providers' results are still shown below): {message}")
+
+    search_results = st.session_state.get("job_search_results") or []
+    if search_results:
+        st.caption(f"{len(search_results)} unique listing(s) found.")
+    for listing in search_results:
+        header = listing.title + (f" @ {listing.company}" if listing.company else "")
+        with st.expander(f"{header}  ·  {listing.source}"):
+            meta_bits = [
+                bit
+                for bit in [listing.location, f"posted {listing.publication_date}" if listing.publication_date else None, listing.remote_type]
+                if bit
+            ]
+            if meta_bits:
+                st.caption(" · ".join(meta_bits))
+            if listing.source_url:
+                st.markdown(f"[View original posting]({listing.source_url})")
+            snippet = listing.description[:500] + ("…" if len(listing.description) > 500 else "")
+            st.write(snippet)
+            if st.button("Save & analyze", key=f"save_{listing.source}_{listing.external_id}"):
+                with st.spinner("Saving and analyzing this listing..."):
+                    with get_session() as session:
+                        saved_job = JobStore(session).save_job_listing(listing)
+                        analyze_and_match(session, candidate_id, get_llm_provider(), job_id=saved_job.id)
+                st.success(f"Saved and analyzed '{listing.title}' — see it in the Job Analysis tab.")
 
 with tab_job_analysis:
     st.subheader("Analyze a job against your verified evidence")
