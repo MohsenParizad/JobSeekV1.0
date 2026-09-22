@@ -3,8 +3,12 @@ mirroring the full Streamlit workflow but through the HTTP layer. Uses the
 fake LLM provider automatically (no ANTHROPIC_API_KEY in the test env).
 """
 import io
+from unittest.mock import patch
 
 import docx
+
+from backend.providers.jobs.base import JobProvider
+from backend.schemas.job_listing import JobListing
 
 
 def _make_docx_bytes(text: str) -> bytes:
@@ -117,3 +121,36 @@ def test_job_search_endpoint_returns_shape(client):
     body = resp.json()
     assert "listings" in body
     assert "provider_errors" in body
+
+
+class _FakeProviderWithResults(JobProvider):
+    name = "fake"
+
+    def search_jobs(self, keywords, country=None, location=None, published_after=None, work_model=None):
+        return [
+            JobListing(
+                source=self.name,
+                external_id="fake-1",
+                title="Python Developer",
+                company="Acme",
+                location="Berlin",
+                description="Build things in Python.",
+                remote_type="remote",
+            )
+        ]
+
+
+def test_job_search_endpoint_serializes_real_listings(client):
+    # Regression test: JobListing (backend/schemas/job_listing.py) and
+    # JobListingOut (backend/api/schemas.py) are separate Pydantic models
+    # with identical fields — Pydantic does NOT auto-convert one into the
+    # other, so the endpoint must explicitly build JobListingOut instances.
+    # An empty listings list passes validation trivially, so this needs at
+    # least one real result to actually catch the bug.
+    with patch("backend.api.routers.jobs.get_job_providers", return_value=[_FakeProviderWithResults()]):
+        resp = client.get("/jobs/search", params={"keywords": "python"})
+    assert resp.status_code == 200
+    body = resp.json()
+    assert len(body["listings"]) == 1
+    assert body["listings"][0]["external_id"] == "fake-1"
+    assert body["listings"][0]["title"] == "Python Developer"

@@ -6,6 +6,7 @@ from sqlalchemy.orm import Session
 from backend.api.deps import get_db
 from backend.api.schemas import (
     AnalyzeJobRequest,
+    JobListingOut,
     JobMatchOut,
     JobOut,
     JobSearchResponse,
@@ -43,7 +44,8 @@ def search_jobs(
         published_after=published_after,
         work_model=work_model,
     )
-    return JobSearchResponse(listings=result.listings, provider_errors=result.provider_errors)
+    listings_out = [JobListingOut(**listing.model_dump()) for listing in result.listings]
+    return JobSearchResponse(listings=listings_out, provider_errors=result.provider_errors)
 
 
 @router.post("/listing", response_model=JobOut)
