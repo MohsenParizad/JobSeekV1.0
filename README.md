@@ -1,6 +1,6 @@
 # JobSeek — AI-Powered Job Application Assistant
 
-[![CI](https://github.com/MohsenParizad/JobSeek/actions/workflows/ci.yml/badge.svg)](https://github.com/MohsenParizad/JobSeek/actions/workflows/ci.yml)
+[![CI](https://github.com/MohsenParizad/JobSeekV1.0/actions/workflows/ci.yml/badge.svg)](https://github.com/MohsenParizad/JobSeekV1.0/actions/workflows/ci.yml)
 
 A job-application assistant that builds a **verified evidence profile**
 from a candidate's CV and employment references, matches it against
